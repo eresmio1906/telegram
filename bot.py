@@ -145,7 +145,7 @@ async def screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.reply_photo(photo=f)
 
         # ❌ (Optional) remove file → comment this if you want to KEEP files
-        # os.remove(path)
+        os.remove(path)
 
     except Exception as e:
         if msg:
