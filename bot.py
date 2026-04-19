@@ -4,23 +4,59 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from PIL import ImageGrab
 import os
 from datetime import datetime
+import hmac
 
+# 🔐 NEW IMPORTS FOR ENCRYPTED SECRETS
+from dotenv import load_dotenv
+from cryptography.fernet import Fernet
 
-BOT_TOKEN = "7901483672:AAG7JUJINcCuSvpEJ-1YUTs_52clD2H3iDE"
-ALLOWED_USER_ID = 1010955964
+# ==================================================
+# 🔐 LOAD ENCRYPTED VALUES FROM secrets.env
+# ==================================================
+load_dotenv("secrets.env")
 
+def must_env(name: str) -> str:
+    val = os.getenv(name)
+    if not val:
+        raise ValueError(f"{name} missing in secrets.env")
+    return val
+
+FERNET_KEY = must_env("FERNET_KEY").encode()
+fernet = Fernet(FERNET_KEY)
+
+def dec(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise ValueError(f"Missing {name}")
+    return fernet.decrypt(value.encode()).decode()
+
+# 🔐 Secrets (decrypted at runtime)
+BOT_TOKEN = dec("ENC_BOT_TOKEN")
+API_KEY = dec("ENC_API_KEY")
+ALLOWED_USER_ID = int(dec("ENC_USER_ID"))
+
+# ==================================================
+# NORMAL CONFIG
+# ==================================================
 BACKEND_URL = "http://localhost:5000"
-API_KEY = "my_secure_key"
+BASE_DIR = "C:/Users"
 
 # ---------------- SECURITY ----------------
 async def authorize(update: Update) -> bool:
     user = update.effective_user
     msg = update.effective_message
 
-    if not user or user.id != ALLOWED_USER_ID:
+    if not user:
+        return False
+
+    # Constant-time secure comparison
+    allowed = hmac.compare_digest(str(user.id), str(ALLOWED_USER_ID))
+
+    if not allowed:
         if msg:
             await msg.reply_text("❌ Unauthorized")
         return False
+
     return True
 
 # ---------------- COMMANDS ----------------
@@ -115,7 +151,7 @@ async def cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output = res.json().get("output", "Error")
 
         if msg:
-            await msg.reply_text(output[:4000])  # Telegram limit safe
+            await msg.reply_text(output[:4000])
     except Exception as e:
         if msg:
             await msg.reply_text(f"Error: {e}")
@@ -127,30 +163,24 @@ async def screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
 
     try:
-        # 📁 Folder create (if not exists)
         folder = "Files"
         os.makedirs(folder, exist_ok=True)
 
-        # 🕒 Unique filename (no overwrite)
         filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         path = os.path.join(folder, filename)
 
-        # 📸 Capture screenshot
         img = ImageGrab.grab()
         img.save(path)
 
-        # 📤 Send to Telegram
         if msg:
             with open(path, "rb") as f:
                 await msg.reply_photo(photo=f)
 
-        # ❌ (Optional) remove file → comment this if you want to KEEP files
-        # os.remove(path)
+        os.remove(path)
 
     except Exception as e:
         if msg:
             await msg.reply_text(f"Error: {e}")
-BASE_DIR = "C:/Users/ASUS/Downloads"   # same as backend
 
 async def get_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await authorize(update):
@@ -196,7 +226,7 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    print("Bot running...")
+    print("Bot running securely...")
     app.run_polling()
 
 if __name__ == "__main__":

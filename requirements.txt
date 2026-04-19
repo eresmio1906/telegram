@@ -4,3 +4,5 @@ python-telegram-bot
 Pillow
 psutil
 pyinstaller
+python-dotenv
+cryptography

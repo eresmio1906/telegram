@@ -1,2 +1,7 @@
 /venv
 /Files
+secrets.env
+venv/
+__pycache__/
+delete.py
+
