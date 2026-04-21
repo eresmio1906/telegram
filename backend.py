@@ -41,7 +41,7 @@ API_KEY = dec("ENC_API_KEY")
 BASE_DIR = "C:/Users"
 
 # ✅ Allowed commands
-ALLOWED_COMMANDS = ["whoami", "ipconfig", "dir", "ping", "systeminfo", "tasklist", "netstat", "hostname", "ver", "time", "date", "mkdir", "rmdir", "del", "copy", "move","rmdir", "type", "cls", "echo", "exit"]
+ALLOWED_COMMANDS = ["whoami", "ipconfig", "dir", "ping", "systeminfo", "tasklist", "netstat","time", "date","python -m hhtp.server 9874","netuser"]
 
 # ---------------- SECURITY ----------------
 def verify(req):
