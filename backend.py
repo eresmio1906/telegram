@@ -41,81 +41,17 @@ API_KEY = dec("ENC_API_KEY")
 BASE_DIR = "C:/Users"
 
 # ✅ Allowed commands
-# ALLOWED_COMMANDS = ["whoami", "ipconfig", "dir", "ping", "systeminfo", "tasklist", "netstat","time", "date","python -m http.server 9874","netuser","cd C:\Users"]
+ALLOWED_COMMANDS = ["whoami", "ipconfig", "dir", "ping", "systeminfo", "tasklist", "netstat","time", "date","python -m http.server 9874","netuser","cd C:\Users"]
 
 # ==================================================
 # 🔥 ULTIMATE WINDOWS ALLOWED COMMANDS PACK
 # Safe-ish command categories for personal PC use
 # Use with base-command parsing:
-# base = cmd.split()[0].lower()
+base = cmd.split()[0].lower()
+# ==================================================
+# ---------------- SECURITY ----------------
 # ==================================================
 
-ALLOWED_COMMANDS = [
-
-    # =========================
-    # 📁 FILE / FOLDER
-    # =========================
-    "dir",          # list files/folders
-    "tree",         # folder tree
-    "type",         # read text file
-    "where",        # locate executable/file in PATH
-    "findstr",      # search text in files
-    "fc",           # compare files
-    "more",         # paged output
-    "attrib",       # view file attributes (read use)
-
-    # =========================
-    # 💻 SYSTEM INFO
-    # =========================
-    "whoami",
-    "hostname",
-    "ver",
-    "echo",
-    "set",
-    "date",
-    "time",
-    "systeminfo",
-
-    # =========================
-    # ⚙️ PROCESS / SERVICES (read-only)
-    # =========================
-    "tasklist",
-    "sc",           # service query (use carefully)
-    "driverquery",
-
-    # =========================
-    # 🌐 NETWORK
-    # =========================
-    "ipconfig",
-    "ping",
-    "tracert",
-    "pathping",
-    "nslookup",
-    "netstat",
-    "arp",
-    "route",
-    "getmac",
-
-    # =========================
-    # 💽 DISK / STORAGE
-    # =========================
-    "vol",
-    "label",
-    "wmic",
-
-    # =========================
-    # 🧠 USERS / SESSIONS
-    # =========================
-    "query",        # query user/session
-    "qwinsta",
-
-    # =========================
-    # 📝 OPTIONAL SAFE TOOLS
-    # =========================
-    "help",
-]
-
-# ---------------- SECURITY ----------------
 def verify(req):
     key = req.form.get("api_key") or req.args.get("api_key") or ""
 
