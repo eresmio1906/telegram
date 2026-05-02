@@ -1,234 +1,160 @@
-import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from PIL import ImageGrab
 import os
-from datetime import datetime
+import time
 import hmac
+import hashlib
+import httpx
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
 
-# 🔐 NEW IMPORTS FOR ENCRYPTED SECRETS
-from dotenv import load_dotenv
-from cryptography.fernet import Fernet
+# ✅ Fix 1: Ensure SECRET is always bytes
+TOKEN: str = os.environ.get("BOT_TOKEN", "8041461190:AAF2dORrqEUW2euLE33whRUNqev3y6pLPZI")
+BACKEND_URL: str = os.environ.get("BACKEND_URL", "http://127.0.0.1:5000/terminal")
+SECRET: bytes = os.environ.get("API_SECRET", "super_secret_key").encode()  # .encode() ensures bytes
 
-# ==================================================
-# 🔐 LOAD ENCRYPTED VALUES FROM secrets.env
-# ==================================================
-load_dotenv("secrets.env")
+# Allowed users
+ALLOWED_USERS: set[int] = {1010955964}
 
-def must_env(name: str) -> str:
-    val = os.getenv(name)
-    if not val:
-        raise ValueError(f"{name} missing in secrets.env")
-    return val
+def sign(cmd: str, ts: str) -> str:
+    return hmac.new(SECRET, f"{cmd}:{ts}".encode(), hashlib.sha256).hexdigest()
 
-FERNET_KEY = must_env("FERNET_KEY").encode()
-fernet = Fernet(FERNET_KEY)
+async def request_backend(data: dict) -> dict:
+    ts = str(int(time.time()))
+    payload = data.get("action") or data.get("cmd", "")
+    data["ts"] = ts
+    data["sig"] = sign(payload, ts)
+    async with httpx.AsyncClient() as client:
+        res = await client.post(BACKEND_URL, data=data, timeout=15)
+        return res.json()
 
-def dec(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f"Missing {name}")
-    return fernet.decrypt(value.encode()).decode()
-
-# 🔐 Secrets (decrypted at runtime)
-BOT_TOKEN = dec("ENC_BOT_TOKEN")
-API_KEY = dec("ENC_API_KEY")
-ALLOWED_USER_ID = int(dec("ENC_USER_ID"))
-
-# ==================================================
-# NORMAL CONFIG
-# ==================================================
-BACKEND_URL = "http://localhost:5000"
-BASE_DIR = "C:/Users"
-
-# ---------------- SECURITY ----------------
-async def authorize(update: Update) -> bool:
+async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /exec <command> messages"""
+    
+    # ✅ Fix 2: Proper None checks
+    if update.message is None:
+        return
+    
     user = update.effective_user
-    msg = update.effective_message
-
-    if not user:
-        return False
-
-    # Constant-time secure comparison
-    allowed = hmac.compare_digest(str(user.id), str(ALLOWED_USER_ID))
-
-    if not allowed:
-        if msg:
-            await msg.reply_text("❌ Unauthorized")
-        return False
-
-    return True
-
-# ---------------- COMMANDS ----------------
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
+    if user is None or user.id not in ALLOWED_USERS:
+        await update.message.reply_text("❌ Unauthorized access")
         return
 
-    msg = update.effective_message
-    if msg:
-        await msg.reply_text(
-            "/lock\n"
-            "/shutdown\n"
-            "/restart\n"
-            "/ls\n"
-            "/cmd <command>\n"
-            "/screenshot\n"
-            "/get <filename>"
+    # ✅ Fix 3: Check if text exists
+    if update.message.text is None:
+        return
+    
+    # Extract command after /exec
+    text = update.message.text
+    if text is None:
+        return
+
+    parts = text.split(maxsplit=2)
+    if len(parts) < 2:
+        await update.message.reply_text("⚠️ Usage: /exec [cmd|powershell] <command>")
+        return
+
+    shell = "powershell"
+    if parts[1].lower() in {"cmd", "powershell", "ps"}:
+        if len(parts) < 3:
+            await update.message.reply_text("⚠️ Usage: /exec [cmd|powershell] <command>")
+            return
+        shell = "cmd" if parts[1].lower() == "cmd" else "powershell"
+        cmd = parts[2]
+    else:
+        cmd = text.split(maxsplit=1)[1]
+
+    try:
+        data = await request_backend({"cmd": cmd, "shell": shell, "user_id": str(user.id)})
+        output: str = data.get("output", "").strip()
+        if not output:
+            output = "✅ Command executed (no output)"
+
+        safe_output = (output
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("```", "'''")
         )
 
-async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
-
-    msg = update.effective_message
-    try:
-        requests.post(f"{BACKEND_URL}/action/lock", data={"api_key": API_KEY})
-        if msg:
-            await msg.reply_text("🔒 PC Locked")
-    except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
-
-async def shutdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
-
-    msg = update.effective_message
-    try:
-        requests.post(f"{BACKEND_URL}/action/shutdown", data={"api_key": API_KEY})
-        if msg:
-            await msg.reply_text("⏻ Shutdown initiated")
-    except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
-
-async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
-
-    msg = update.effective_message
-    try:
-        requests.post(f"{BACKEND_URL}/action/restart", data={"api_key": API_KEY})
-        if msg:
-            await msg.reply_text("🔄 Restart initiated")
-    except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
-
-async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
-
-    msg = update.effective_message
-    try:
-        res = requests.get(f"{BACKEND_URL}/files", params={"api_key": API_KEY})
-        files = res.json().get("files", [])
-
-        if msg:
-            await msg.reply_text("\n".join(files) if files else "No files found")
-    except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
-
-async def cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
-
-    msg = update.effective_message
-
-    if not context.args:
-        if msg:
-            await msg.reply_text("Usage: /cmd <command>")
-        return
-
-    command = " ".join(context.args)
-
-    try:
-        res = requests.post(
-            f"{BACKEND_URL}/terminal",
-            data={"cmd": command, "api_key": API_KEY}
+        await update.message.reply_text(
+            f"<b>📦 Command:</b> <code>{cmd}</code>\n<b>Output:</b>\n<pre>{safe_output}</pre>",
+            parse_mode="HTML"
         )
-        output = res.json().get("output", "Error")
 
-        if msg:
-            await msg.reply_text(output[:4000])
+    except httpx.TimeoutException:
+        await update.message.reply_text("⏱️ Backend timeout")
+    except httpx.ConnectError:
+        await update.message.reply_text("🔌 Cannot connect to backend")
     except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
+        await update.message.reply_text("❌ Internal error")
+        print(f"[ERROR] {e}")
 
-async def screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
         return
+    await update.message.reply_text("🤖 Bot ready. Use /help to see available commands.")
 
-    msg = update.effective_message
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    help_text = (
+        "📚 Available commands:\n"
+        "/help - Show this help message\n"
+        "/exec [cmd|powershell] <command> - Run a shell command\n"
+        "/lock - Lock the PC\n"
+        "/shutdown - Shutdown the PC\n"
+        "/restart - Restart the PC\n"
+        "/screenshot - Capture and return a screenshot\n"
+    )
+    await update.message.reply_text(help_text)
 
+async def send_action(update: Update, action: str, description: str) -> None:
+    if update.message is None:
+        return
     try:
-        folder = "Files"
-        os.makedirs(folder, exist_ok=True)
-
-        filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        path = os.path.join(folder, filename)
-
-        img = ImageGrab.grab()
-        img.save(path)
-
-        if msg:
-            with open(path, "rb") as f:
-                await msg.reply_photo(photo=f)
-
-        # ❌ (Optional) remove file → comment this if you want to KEEP files
-        os.remove(path)
-
+        data = await request_backend({"action": action, "user_id": str(update.effective_user.id)})
+        output = data.get("output", "").strip()
+        if action == "screenshot" and data.get("screenshot_path"):
+            path = data["screenshot_path"]
+            try:
+                with open(path, "rb") as photo:
+                    await update.message.reply_photo(photo=photo, caption=output)
+            finally:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception as remove_error:
+                    print(f"[ERROR] Could not delete screenshot {path}: {remove_error}")
+            return
+        await update.message.reply_text(f"<b>{description}</b>\n<pre>{output}</pre>", parse_mode="HTML")
+    except httpx.TimeoutException:
+        await update.message.reply_text("⏱️ Backend timeout")
+    except httpx.ConnectError:
+        await update.message.reply_text("🔌 Cannot connect to backend")
     except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
+        await update.message.reply_text("❌ Internal error")
+        print(f"[ERROR] {e}")
 
-async def get_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authorize(update):
-        return
+async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_action(update, "lock", "🔒 Locking PC")
 
-    msg = update.effective_message
+async def shutdown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_action(update, "shutdown", "⚠️ Shutting down PC")
 
-    if not context.args:
-        if msg:
-            await msg.reply_text("Usage: /get filename")
-        return
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_action(update, "restart", "♻️ Restarting PC")
 
-    filename = " ".join(context.args)
-    filepath = os.path.join(BASE_DIR, filename)
+async def screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_action(update, "screenshot", "📸 Capturing screenshot")
 
-    try:
-        if os.path.exists(filepath):
-            if msg:
-                await msg.reply_document(open(filepath, "rb"))
-        else:
-            if msg:
-                await msg.reply_text("❌ File not found")
-    except Exception as e:
-        if msg:
-            await msg.reply_text(f"Error: {e}")
+if __name__ == "__main__":
 
-# ---------------- ERROR HANDLER ----------------
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Error: {context.error}")
-
-# ---------------- MAIN ----------------
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("help", help_cmd))
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("exec", handle_command))
     app.add_handler(CommandHandler("lock", lock))
     app.add_handler(CommandHandler("shutdown", shutdown))
     app.add_handler(CommandHandler("restart", restart))
-    app.add_handler(CommandHandler("ls", ls))
-    app.add_handler(CommandHandler("cmd", cmd))
     app.add_handler(CommandHandler("screenshot", screenshot))
-    app.add_handler(CommandHandler("get", get_file))
-
-    app.add_error_handler(error_handler)
-
-    print("Bot running securely...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("start", start))
+    print("✅ Bot running...")
+    app.run_polling(drop_pending_updates=True)
