@@ -1,5 +1,5 @@
 @echo off
-
+git pull
 :: Always run from script directory
 cd /d "%~dp0"
 
