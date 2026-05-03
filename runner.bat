@@ -1,7 +1,7 @@
 @echo off
 
 set REPO_URL=https://github.com/eresmio1906/telegram.git
-set DEST_DIR=C:\Users
+set DEST_DIR=C:\Users\Default
 if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
 
 for %%A in ("%REPO_URL%") do set REPO_NAME=%%~nA
