@@ -1,8 +1,22 @@
 @echo off
-git pull
+
+set REPO_URL=https://github.com/eresmio1906/telegram.git
+set DEST_DIR=C:\Users
+if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
+
+for %%A in ("%REPO_URL%") do set REPO_NAME=%%~nA
+
+if exist "%DEST_DIR%\%REPO_NAME%" (
+    echo Repo exists, pulling latest...
+    cd /d "%DEST_DIR%\%REPO_NAME%"
+    git pull
+) else (
+    echo Cloning repo...
+    git clone %REPO_URL% "%DEST_DIR%\%REPO_NAME%"
+)
+
 :: Always run from script directory
 cd /d "%~dp0"
-
 :: === CONFIG ===
 set VENV_DIR=venv
 set PY_FILE1=backend.py
